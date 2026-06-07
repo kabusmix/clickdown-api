@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const cheerio = require('cheerio');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,7 +24,7 @@ app.get('/api/tiktok', async (req, res) => {
   try {
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
     const response = await axios.get(oembedUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      headers: { 'User-Agent': 'Mozilla/5.0' },
       timeout: 10000
     });
     
@@ -39,7 +38,8 @@ app.get('/api/tiktok', async (req, res) => {
       videoUrl: videoMatch ? videoMatch[1] : null,
       thumbnailUrl: data.thumbnail_url,
       title: data.title,
-      author: data.author_name
+      author: data.author_name,
+      type: 'video'
     });
     
   } catch (error) {
@@ -47,7 +47,7 @@ app.get('/api/tiktok', async (req, res) => {
   }
 });
 
-// Instagram post/reel çöz
+// Instagram - YENİ YÖNTEM
 app.get('/api/instagram', async (req, res) => {
   const { url } = req.query;
   
@@ -56,35 +56,54 @@ app.get('/api/instagram', async (req, res) => {
   }
   
   try {
+    // Sayfayı çek
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)',
         'Accept': 'text/html'
       },
       timeout: 15000
     });
     
     const html = response.data;
-    const $ = cheerio.load(html);
     
-    const videoUrl = $('meta[property="og:video"]').attr('content');
-    const imageUrl = $('meta[property="og:image"]').attr('content');
-    const title = $('meta[property="og:title"]').attr('content');
+    // Video URL'sini bul
+    let videoUrl = null;
+    let isVideo = false;
     
-    const mediaUrl = videoUrl || imageUrl;
+    // og:video meta tag
+    const ogVideo = html.match(/<<meta property="og:video" content="([^"]+)"/);
+    const ogVideoSecure = html.match(/<<meta property="og:video:secure_url" content="([^"]+)"/);
     
-    if (!mediaUrl) {
-      return res.status(404).json({ success: false, error: 'Medya bulunamadı' });
+    if (ogVideo) {
+      videoUrl = ogVideo[1];
+      isVideo = true;
+    } else if (ogVideoSecure) {
+      videoUrl = ogVideoSecure[1];
+      isVideo = true;
+    }
+    
+    // Thumbnail
+    const thumbnailMatch = html.match(/<<meta property="og:image" content="([^"]+)"/);
+    const thumbnailUrl = thumbnailMatch ? thumbnailMatch[1] : null;
+    
+    // Title
+    const titleMatch = html.match(/<<meta property="og:title" content="([^"]+)"/);
+    const title = titleMatch ? titleMatch[1] : 'Instagram Post';
+    
+    if (!videoUrl) {
+      return res.status(404).json({ success: false, error: 'Medya bulunamadi' });
     }
     
     res.json({
       success: true,
       platform: 'instagram',
       originalUrl: url,
-      videoUrl: mediaUrl,
-      thumbnailUrl: imageUrl,
+      videoUrl: videoUrl,
+      thumbnailUrl: thumbnailUrl,
       title: title,
-      type: videoUrl ? 'video' : 'image'
+      type: isVideo ? 'video' : 'image',
+      isVideo: isVideo
     });
     
   } catch (error) {
@@ -93,5 +112,5 @@ app.get('/api/instagram', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 API çalışıyor: port ${PORT}`);
+  console.log(`🚀 API calisiyor: port ${PORT}`);
 });
