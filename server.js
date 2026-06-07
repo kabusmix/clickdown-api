@@ -10,10 +10,10 @@ app.use(express.json());
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'ClickDown API', version: '1.0.0' });
+  res.json({ status: 'ok', service: 'ClickDown API', version: '2.0.0' });
 });
 
-// TikTok video çöz
+// TikTok - tikwm.com API (çalışıyor!)
 app.get('/api/tiktok', async (req, res) => {
   const { url } = req.query;
   
@@ -22,32 +22,45 @@ app.get('/api/tiktok', async (req, res) => {
   }
   
   try {
-    const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
-    const response = await axios.get(oembedUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 10000
+    // tikwm.com API'si - watermark olmadan
+    const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`;
+    
+    const response = await axios.get(apiUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Accept': 'application/json'
+      },
+      timeout: 15000
     });
     
     const data = response.data;
-    const videoMatch = data.html.match(/src="([^"]+)"/);
+    
+    if (!data || !data.data) {
+      throw new Error('Video bulunamadi');
+    }
+    
+    const videoData = data.data;
     
     res.json({
       success: true,
       platform: 'tiktok',
       originalUrl: url,
-      videoUrl: videoMatch ? videoMatch[1] : null,
-      thumbnailUrl: data.thumbnail_url,
-      title: data.title,
-      author: data.author_name,
-      type: 'video'
+      videoUrl: videoData.play, // watermark olmayan video
+      thumbnailUrl: videoData.cover,
+      title: videoData.title,
+      author: videoData.author?.nickname,
+      duration: videoData.duration,
+      type: 'video',
+      isVideo: true
     });
     
   } catch (error) {
+    console.error('TikTok error:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Instagram - EMBED API YÖNTEMİ
+// Instagram - Alternatif yöntem (thumbnail + bilgi)
 app.get('/api/instagram', async (req, res) => {
   const { url } = req.query;
   
@@ -56,50 +69,51 @@ app.get('/api/instagram', async (req, res) => {
   }
   
   try {
-    // Instagram Embed API
-    const embedUrl = `https://api.instagram.com/oembed?url=${encodeURIComponent(url)}`;
-    
-    const embedResponse = await axios.get(embedUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 10000
+    // Instagram sayfasını çek
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)',
+        'Accept': 'text/html'
+      },
+      timeout: 15000
     });
     
-    const embedData = embedResponse.data;
+    const html = response.data;
     
-    // Embed HTML'den media URL'sini çıkar
-    const html = embedData.html || '';
+    // Meta tag'lerden bilgi al
+    const titleMatch = html.match(/<<meta property="og:title" content="([^"]+)"/);
+    const imageMatch = html.match(/<<meta property="og:image" content="([^"]+)"/);
+    const videoMatch = html.match(/<<meta property="og:video" content="([^"]+)"/);
     
-    // Video URL'sini bul
-    let videoUrl = null;
-    let isVideo = false;
+    const title = titleMatch ? titleMatch[1] : 'Instagram Post';
+    const imageUrl = imageMatch ? imageMatch[1] : null;
+    const videoUrl = videoMatch ? videoMatch[1] : null;
     
-    // HTML'de video src ara
-    const videoMatch = html.match(/src="([^"]+\.mp4[^"]*)"/);
-    if (videoMatch) {
-      videoUrl = videoMatch[1];
-      isVideo = true;
+    // Eğer video URL'si varsa
+    if (videoUrl) {
+      res.json({
+        success: true,
+        platform: 'instagram',
+        originalUrl: url,
+        videoUrl: videoUrl,
+        thumbnailUrl: imageUrl,
+        title: title,
+        type: 'video',
+        isVideo: true
+      });
+    } else {
+      // Sadece resim varsa
+      res.json({
+        success: true,
+        platform: 'instagram',
+        originalUrl: url,
+        videoUrl: imageUrl, // resim URL'si
+        thumbnailUrl: imageUrl,
+        title: title,
+        type: 'image',
+        isVideo: false
+      });
     }
-    
-    // Eğer video yoksa, thumbnail kullan
-    if (!videoUrl) {
-      videoUrl = embedData.thumbnail_url;
-    }
-    
-    if (!videoUrl) {
-      return res.status(404).json({ success: false, error: 'Medya bulunamadi' });
-    }
-    
-    res.json({
-      success: true,
-      platform: 'instagram',
-      originalUrl: url,
-      videoUrl: videoUrl,
-      thumbnailUrl: embedData.thumbnail_url,
-      title: embedData.title || 'Instagram Post',
-      author: embedData.author_name,
-      type: isVideo ? 'video' : 'image',
-      isVideo: isVideo
-    });
     
   } catch (error) {
     console.error('Instagram error:', error.message);
