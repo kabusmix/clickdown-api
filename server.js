@@ -47,7 +47,7 @@ app.get('/api/tiktok', async (req, res) => {
   }
 });
 
-// Instagram - YENİ YÖNTEM
+// Instagram - EMBED API YÖNTEMİ
 app.get('/api/instagram', async (req, res) => {
   const { url } = req.query;
   
@@ -56,40 +56,34 @@ app.get('/api/instagram', async (req, res) => {
   }
   
   try {
-    // Sayfayı çek
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)',
-        'Accept': 'text/html'
-      },
-      timeout: 15000
+    // Instagram Embed API
+    const embedUrl = `https://api.instagram.com/oembed?url=${encodeURIComponent(url)}`;
+    
+    const embedResponse = await axios.get(embedUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 10000
     });
     
-    const html = response.data;
+    const embedData = embedResponse.data;
+    
+    // Embed HTML'den media URL'sini çıkar
+    const html = embedData.html || '';
     
     // Video URL'sini bul
     let videoUrl = null;
     let isVideo = false;
     
-    // og:video meta tag
-    const ogVideo = html.match(/<<meta property="og:video" content="([^"]+)"/);
-    const ogVideoSecure = html.match(/<<meta property="og:video:secure_url" content="([^"]+)"/);
-    
-    if (ogVideo) {
-      videoUrl = ogVideo[1];
-      isVideo = true;
-    } else if (ogVideoSecure) {
-      videoUrl = ogVideoSecure[1];
+    // HTML'de video src ara
+    const videoMatch = html.match(/src="([^"]+\.mp4[^"]*)"/);
+    if (videoMatch) {
+      videoUrl = videoMatch[1];
       isVideo = true;
     }
     
-    // Thumbnail
-    const thumbnailMatch = html.match(/<<meta property="og:image" content="([^"]+)"/);
-    const thumbnailUrl = thumbnailMatch ? thumbnailMatch[1] : null;
-    
-    // Title
-    const titleMatch = html.match(/<<meta property="og:title" content="([^"]+)"/);
-    const title = titleMatch ? titleMatch[1] : 'Instagram Post';
+    // Eğer video yoksa, thumbnail kullan
+    if (!videoUrl) {
+      videoUrl = embedData.thumbnail_url;
+    }
     
     if (!videoUrl) {
       return res.status(404).json({ success: false, error: 'Medya bulunamadi' });
@@ -100,13 +94,15 @@ app.get('/api/instagram', async (req, res) => {
       platform: 'instagram',
       originalUrl: url,
       videoUrl: videoUrl,
-      thumbnailUrl: thumbnailUrl,
-      title: title,
+      thumbnailUrl: embedData.thumbnail_url,
+      title: embedData.title || 'Instagram Post',
+      author: embedData.author_name,
       type: isVideo ? 'video' : 'image',
       isVideo: isVideo
     });
     
   } catch (error) {
+    console.error('Instagram error:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
